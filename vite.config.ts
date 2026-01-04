@@ -7,11 +7,11 @@ export default defineConfig({
   clearScreen: false,
   resolve: {
     alias: {
-      $lib: path.resolve("./src/lib")
-    }
+      $lib: path.resolve("./src/lib"),
+    },
   },
   server: {
     port: 8080,
-    strictPort: true
-  }
+    strictPort: true,
+  },
 });
