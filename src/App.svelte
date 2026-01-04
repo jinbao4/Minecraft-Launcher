@@ -1,181 +1,87 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import Layout from './Layout.svelte';
-  import type { Account } from '$lib/types';
-  import {
-    tryAutoLogin,
-    startLogin,
-    logout,
-    setupAuthListeners
-  } from '$lib/helpers/auth';
-  import {
-    listInstances,
-    installInstance,
-    launchInstance,
-    getInstallInstanceName
-  } from '$lib/helpers/instances';
-  import { setupInstallListeners } from '$lib/helpers/events';
+	import { onMount } from 'svelte';
+	import Layout from './Layout.svelte';
+	import Play from './pages/Play.svelte';
+	import Install from './pages/Install.svelte';
+	import Login from './pages/Login.svelte';
+	import { tryAutoLogin, setupAuthListeners } from '$lib/helpers/auth';
+	import type { Account } from '$lib/types';
 
-  let instances: string[] = [];
-  let status: string = "Idle";
-  let isLoggingIn: boolean = false;
-  let account: Account | null = null;
-  let availableVersions: string[] = ["1.20.1", "1.19.4", "1.18.2"];
-  let selectedVersion: string = "1.20.1";
+	let currentLocation = $state(window.location.pathname);
+	let account = $state<Account | null>(null);
+	let isLoading = $state(true);
 
-  function updateStatus(newStatus: string) {
-    status = newStatus;
-  }
+	onMount(async () => {
+		account = await tryAutoLogin();
 
-  onMount(async () => {
-    await loadInstances();
+		setupAuthListeners(
+			(acc) => {
+				account = acc;
+			},
+			() => {
+				account = null;
+			}
+		);
 
-    const savedAccount = await tryAutoLogin();
-    if (savedAccount) {
-      updateStatus(`Refreshing session for ${savedAccount.name}...`);
-      isLoggingIn = true;
-      account = savedAccount;
-      updateStatus(`Welcome back, ${account.name}`);
-      isLoggingIn = false;
-    }
+		isLoading = false;
+	});
 
-    setupAuthListeners(
-      (acc) => {
-        account = acc;
-        updateStatus(`Logged in as ${account.name}`);
-        isLoggingIn = false;
-      },
-      (error) => {
-        updateStatus(`Login Failed: ${error}`);
-        isLoggingIn = false;
-      }
-    );
+	function navigate(location: string) {
+		window.history.pushState({}, '', location);
+		currentLocation = location;
+	}
 
-    setupInstallListeners(
-      (installStatus) => {
-        updateStatus(installStatus);
-      },
-      (error) => {
-        updateStatus(`Error: ${error}`);
-      }
-    );
-  });
+	$effect(() => {
+		const handlePopState = () => {
+			currentLocation = window.location.pathname;
+		};
 
-  async function loadInstances(): Promise<void> {
-    instances = await listInstances();
-  }
+		window.addEventListener('popstate', handlePopState);
 
-  async function handleLogin(): Promise<void> {
-    isLoggingIn = true;
-    updateStatus("Opening Microsoft Login...");
-    try {
-      await startLogin();
-    } catch (error) {
-      console.error("Login error:", error);
-      updateStatus("Failed to open login window");
-      isLoggingIn = false;
-    }
-  }
-
-  function handleLogout(): void {
-    account = null;
-    logout();
-    updateStatus("Logged out.");
-  }
-
-  async function loginAndLaunch(name: string): Promise<void> {
-    if (!account) {
-      await handleLogin();
-      return;
-    }
-
-    try {
-      updateStatus(`Launching ${name}...`);
-      await launchInstance(name, account);
-    } catch (error) {
-      console.error("Launch error:", error);
-      updateStatus(`Launch Error: ${error}`);
-    }
-  }
-
-  async function install(): Promise<void> {
-    if (!selectedVersion) return;
-
-    const newInstanceName = getInstallInstanceName(selectedVersion);
-    updateStatus(`Installing Minecraft ${selectedVersion}...`);
-
-    try {
-      await installInstance(newInstanceName, selectedVersion);
-      setTimeout(loadInstances, 1000);
-    } catch (error) {
-      console.error("Install error:", error);
-      updateStatus(`Install Error: ${error}`);
-    }
-  }
+		return () => window.removeEventListener('popstate', handlePopState);
+	});
 </script>
 
-<Layout>
-  <div class="flex justify-between items-center mb-4">
-    <div class="flex-1">
-      <p>Status: <b>{status}</b></p>
-    </div>
+{#if isLoading}
+	<div class="loading"><div class="spinner"></div></div>
+{:else if !account}
+	<Login />
+{:else}
+	<Layout
+		currentLocation={currentLocation}
+		navigate={navigate}
+		account={account}
+	>
+		{#if currentLocation === '/' || currentLocation === ''}
+			<Play account={account} />
+		{:else if currentLocation === '/install'}
+			<Install />
+		{/if}
+	</Layout>
+{/if}
 
-    {#if account}
-      <div class="flex items-center gap-2">
-        <img
-          src="https://mc-heads.net/avatar/{account.name}"
-          alt="Avatar for {account.name}"
-          width="32"
-          height="32"
-          class="rounded-full"
-        />
-        <div class="flex flex-col items-end">
-          <span>{account.name}</span>
-          <button class="rounded-lg border border-transparent px-[1.2em] py-[0.6em] text-base font-medium font-inherit bg-primary text-primary-foreground cursor-pointer transition-opacity duration-250 hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed" on:click={handleLogout}>Log Out</button>
-        </div>
-      </div>
-    {:else}
-      <button class="rounded-lg border border-transparent px-[1.2em] py-[0.6em] text-base font-medium font-inherit bg-primary text-primary-foreground cursor-pointer transition-opacity duration-250 hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed" on:click={handleLogin} disabled={isLoggingIn}>
-        {isLoggingIn ? "Authenticating..." : "Login with Microsoft"}
-      </button>
-    {/if}
-  </div>
+<style>
+	.loading {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 100vw;
+		height: 100vh;
+		background: linear-gradient(135deg, #e8e8e8 0%, #d4d4d4 100%);
+	}
 
-  <hr />
+	.spinner {
+		width: 40px;
+		height: 40px;
+		border: 4px solid #d1d1d1;
+		border-top-color: #1a1a1a;
+		border-radius: 50%;
+		animation: spin 0.8s linear infinite;
+	}
 
-  <div class="my-8">
-    <h3>Create New Instance</h3>
-    <div class="flex items-center justify-center gap-4">
-      <select bind:value={selectedVersion} aria-label="Minecraft version" class="rounded-lg border border-border bg-background text-foreground px-[1.2em] py-[0.6em]">
-        {#each availableVersions as version}
-          <option value={version}>{version}</option>
-        {/each}
-      </select>
-      <button class="rounded-lg border border-transparent px-[1.2em] py-[0.6em] text-base font-medium font-inherit bg-primary text-primary-foreground cursor-pointer transition-opacity duration-250 hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed" on:click={install} disabled={isLoggingIn}>
-        Install {selectedVersion}
-      </button>
-    </div>
-  </div>
-
-  <hr />
-
-  <h3>My Instances</h3>
-  <ul class="m-0 flex list-none flex-col gap-4 p-0">
-    {#each instances as name}
-      <li class="flex justify-between items-center rounded-lg border border-border bg-card p-4">
-        <span class="font-medium">{name}</span>
-        <button
-          class="rounded-lg border border-transparent px-[1.2em] py-[0.6em] text-base font-medium font-inherit bg-primary text-primary-foreground cursor-pointer transition-opacity duration-250 hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-          on:click={() => loginAndLaunch(name)}
-          disabled={isLoggingIn}
-        >
-          {account ? "Play" : "Login & Play"}
-        </button>
-      </li>
-    {:else}
-      <li>
-        <p class="text-muted-foreground my-4">No instances found. Install one above!</p>
-      </li>
-    {/each}
-  </ul>
-</Layout>
+	@keyframes spin {
+		to {
+			transform: rotate(360deg);
+		}
+	}
+</style>
