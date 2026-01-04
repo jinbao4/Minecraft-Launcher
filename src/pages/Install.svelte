@@ -3,7 +3,6 @@
 	import { installInstance } from '$lib/helpers/instances';
 	import { setupInstallListeners } from '$lib/helpers/events';
 	import { fetchVersionManifest, filterVersions, type VersionEntry } from '$lib/helpers/versions';
-	import type { Account } from '$lib/types';
 	import Select from '$lib/components/ui/select/select.svelte';
 	import Button from '$lib/components/ui/button/button.svelte';
 	import Card from '$lib/components/ui/card/card.svelte';
@@ -139,7 +138,14 @@
 					</div>
 
 					<div class="flex items-center gap-2">
-						<Checkbox bind:checked={includeSnapshots} id="snapshots" />
+						<Checkbox
+							checked={includeSnapshots}
+							id="snapshots"
+							onchange={(e) => {
+								const target = e.target as HTMLInputElement | null;
+								includeSnapshots = target?.checked ?? false;
+							}}
+						/>
 						<label for="snapshots" class="text-sm font-medium">Include Snapshots</label>
 					</div>
 
@@ -158,7 +164,7 @@
 					<div class="space-y-2">
 						<label for="version-select" class="block text-sm font-medium">Minecraft Version</label>
 						<Select
-							bind:value={selectedVersion}
+							value={selectedVersion}
 							onchange={handleVersionChange}
 							disabled={isInstalling}
 						>

@@ -14,7 +14,6 @@
 	import { setupInstallListeners } from '$lib/helpers/events';
 	import Play from './pages/Play.svelte';
 	import Install from './pages/Install.svelte';
-	import Instances from './pages/Instances.svelte';
 
 	let currentLocation = $state(window.location.pathname);
 	let status = $state('Idle');
@@ -112,14 +111,5 @@
 		/>
 	{:else if currentLocation === '/install'}
 		<Install {account} {status} {isLoggingIn} onLogin={handleLogin} onLogout={handleLogout} />
-	{:else if currentLocation === '/instances'}
-		<Instances
-			{account}
-			{status}
-			{isLoggingIn}
-			onLogin={handleLogin}
-			onLogout={handleLogout}
-			onLaunch={loginAndLaunch}
-		/>
 	{/if}
 </Layout>
