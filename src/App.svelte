@@ -4,7 +4,7 @@
   import { onMount } from 'svelte';
 
   let instances: string[] = [];
-  let status = "Idle";
+  let status: string = "Idle";
   let isLoggingIn = false;
   
   let account: { 
