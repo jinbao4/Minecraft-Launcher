@@ -1,16 +1,20 @@
 <script lang="ts">
-  import { invoke } from '@tauri-apps/api/core';
-  import { listen } from '@tauri-apps/api/event';
   import { onMount } from 'svelte';
   import Layout from './Layout.svelte';
-
-  interface Account {
-    uuid: string;
-    name: string;
-    mc_token: string;
-    refresh_token: string;
-    expires_at: number;
-  }
+  import type { Account } from '$lib/types';
+  import {
+    tryAutoLogin,
+    startLogin,
+    logout,
+    setupAuthListeners
+  } from '$lib/helpers/auth';
+  import {
+    listInstances,
+    installInstance,
+    launchInstance,
+    getInstallInstanceName
+  } from '$lib/helpers/instances';
+  import { setupInstallListeners } from '$lib/helpers/events';
 
   let instances: string[] = [];
   let status: string = "Idle";
@@ -19,78 +23,64 @@
   let availableVersions: string[] = ["1.20.1", "1.19.4", "1.18.2"];
   let selectedVersion: string = "1.20.1";
 
-  onMount(async () => {
-    loadInstances();
+  function updateStatus(newStatus: string) {
+    status = newStatus;
+  }
 
-    const savedJson = localStorage.getItem("mc_account");
-    if (savedJson) {
-      try {
-        const savedAccount: Account = JSON.parse(savedJson);
-        status = `Refreshing session for ${savedAccount.name}...`;
-        isLoggingIn = true;
-        
-        account = await invoke<Account>('refresh_login', { 
-          refreshToken: savedAccount.refresh_token 
-        });
-        
-        localStorage.setItem("mc_account", JSON.stringify(account));
-        status = `Welcome back, ${account.name}`;
-      } catch (error) {
-        console.error("Auto-login failed:", error);
-        status = "Session expired. Please login again.";
-        localStorage.removeItem("mc_account");
-        account = null;
-      } finally {
-        isLoggingIn = false;
-      }
+  onMount(async () => {
+    await loadInstances();
+
+    const savedAccount = await tryAutoLogin();
+    if (savedAccount) {
+      updateStatus(`Refreshing session for ${savedAccount.name}...`);
+      isLoggingIn = true;
+      account = savedAccount;
+      updateStatus(`Welcome back, ${account.name}`);
+      isLoggingIn = false;
     }
 
-    await listen("login-success", (event) => {
-      account = event.payload as Account;
-      localStorage.setItem("mc_account", JSON.stringify(account));
-      status = `Logged in as ${account.name}`;
-      isLoggingIn = false;
-    });
+    setupAuthListeners(
+      (acc) => {
+        account = acc;
+        updateStatus(`Logged in as ${account.name}`);
+        isLoggingIn = false;
+      },
+      (error) => {
+        updateStatus(`Login Failed: ${error}`);
+        isLoggingIn = false;
+      }
+    );
 
-    await listen("login-error", (event) => {
-      status = `Login Failed: ${event.payload}`;
-      isLoggingIn = false;
-    });
-
-    await listen('install-status', (event) => {
-      status = event.payload as string;
-    });
-
-    await listen('install-error', (event) => {
-      status = `Error: ${event.payload}`;
-    });
+    setupInstallListeners(
+      (installStatus) => {
+        updateStatus(installStatus);
+      },
+      (error) => {
+        updateStatus(`Error: ${error}`);
+      }
+    );
   });
 
   async function loadInstances(): Promise<void> {
-    try {
-      instances = await invoke<string[]>('list_instances');
-    } catch (error) {
-      console.error("Failed to load instances:", error);
-      instances = [];
-    }
+    instances = await listInstances();
   }
 
   async function handleLogin(): Promise<void> {
     isLoggingIn = true;
-    status = "Opening Microsoft Login...";
+    updateStatus("Opening Microsoft Login...");
     try {
-      await invoke('start_login');
+      await startLogin();
     } catch (error) {
       console.error("Login error:", error);
-      status = "Failed to open login window";
+      updateStatus("Failed to open login window");
       isLoggingIn = false;
     }
   }
 
   function handleLogout(): void {
     account = null;
-    localStorage.removeItem("mc_account");
-    status = "Logged out.";
+    logout();
+    updateStatus("Logged out.");
   }
 
   async function loginAndLaunch(name: string): Promise<void> {
@@ -100,34 +90,26 @@
     }
 
     try {
-      status = `Launching ${name}...`;
-      await invoke('launch_instance', { 
-        instanceName: name,
-        uuid: account.uuid,
-        name: account.name,
-        accessToken: account.mc_token
-      });
+      updateStatus(`Launching ${name}...`);
+      await launchInstance(name, account);
     } catch (error) {
       console.error("Launch error:", error);
-      status = `Launch Error: ${error}`;
+      updateStatus(`Launch Error: ${error}`);
     }
   }
 
   async function install(): Promise<void> {
     if (!selectedVersion) return;
-    
-    const newInstanceName = `Instance-${selectedVersion}`;
-    status = `Installing Minecraft ${selectedVersion}...`;
-    
+
+    const newInstanceName = getInstallInstanceName(selectedVersion);
+    updateStatus(`Installing Minecraft ${selectedVersion}...`);
+
     try {
-      await invoke('install_instance', { 
-        instanceName: newInstanceName,
-        mcVersion: selectedVersion 
-      });
+      await installInstance(newInstanceName, selectedVersion);
       setTimeout(loadInstances, 1000);
     } catch (error) {
       console.error("Install error:", error);
-      status = `Install Error: ${error}`;
+      updateStatus(`Install Error: ${error}`);
     }
   }
 </script>
@@ -137,15 +119,15 @@
     <div class="flex-1">
       <p>Status: <b>{status}</b></p>
     </div>
-    
+
     {#if account}
       <div class="flex items-center gap-2">
-        <img 
-          src="https://mc-heads.net/avatar/{account.name}" 
-          alt="Avatar for {account.name}" 
-          width="32" 
+        <img
+          src="https://mc-heads.net/avatar/{account.name}"
+          alt="Avatar for {account.name}"
+          width="32"
           height="32"
-          class="rounded-full" 
+          class="rounded-full"
         />
         <div class="flex flex-col items-end">
           <span>{account.name}</span>
@@ -182,9 +164,9 @@
     {#each instances as name}
       <li class="flex justify-between items-center rounded-lg border border-border bg-card p-4">
         <span class="font-medium">{name}</span>
-        <button 
-          class="rounded-lg border border-transparent px-[1.2em] py-[0.6em] text-base font-medium font-inherit bg-primary text-primary-foreground cursor-pointer transition-opacity duration-250 hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed" 
-          on:click={() => loginAndLaunch(name)} 
+        <button
+          class="rounded-lg border border-transparent px-[1.2em] py-[0.6em] text-base font-medium font-inherit bg-primary text-primary-foreground cursor-pointer transition-opacity duration-250 hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+          on:click={() => loginAndLaunch(name)}
           disabled={isLoggingIn}
         >
           {account ? "Play" : "Login & Play"}
